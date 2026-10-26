@@ -75,6 +75,18 @@ void RONESidechainAudioProcessor::loadShape(int shape) noexcept {
     }
 }
 
+bool RONESidechainAudioProcessor::loadKickSample(const juce::File& file) {
+    juce::AudioFormatManager formats; formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
+    if (!reader || reader->lengthInSamples <= 0 || reader->lengthInSamples > (juce::int64)(reader->sampleRate * 10.0)) return false;
+    const int channels=juce::jlimit(1,2,(int)reader->numChannels);
+    auto buffer=std::make_unique<juce::AudioBuffer<float>>(channels,(int)reader->lengthInSamples);
+    if (!reader->read(buffer.get(),0,(int)reader->lengthInSamples,0,true,true)) return false;
+    auto* samplePtr=buffer.get(); kickSampleVersions.push_back(std::move(buffer)); kickSample.store(samplePtr,std::memory_order_release); kickSampleName=file.getFileName(); kickSampleChanged.store(true,std::memory_order_release);
+    return true;
+}
+juce::String RONESidechainAudioProcessor::getKickSampleName() const { return kickSampleName; }
+
 void RONESidechainAudioProcessor::processBlock(juce::AudioBuffer<float>& b, juce::MidiBuffer&) {
     juce::ScopedNoDenormals noDenormals;
     const int bassN = getBusBuffer(b, true, 0).getNumChannels();
@@ -94,6 +106,13 @@ void RONESidechainAudioProcessor::processBlock(juce::AudioBuffer<float>& b, juce
     const bool phaseEnabled = *state.getRawParameterValue("phaseOn") > .5f;
     const float spaceAmountValue = *state.getRawParameterValue("spaceAmount"), spaceFrequency = *state.getRawParameterValue("spaceFrequency");
     const float releaseMs = *state.getRawParameterValue("release");
+    auto* loadedKick=kickSample.load(std::memory_order_acquire);
+    if(kickSampleChanged.exchange(false,std::memory_order_acq_rel)) kickSamplePosition=-1;
+    bool externalKick=false;
+    for(int c=0;c<kick.getNumChannels();++c) for(int i=0;i<n;++i) if(std::abs(kick.getReadPointer(c)[i])>.001f) externalKick=true;
+    const bool useSample=loadedKick && !externalKick;
+    if(useSample && kickSamplePosition<0 && kickAge<0) kickSamplePosition=0;
+    if(!useSample) kickSamplePosition=-1;
     const float omega = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, 18000.0f, spaceFrequency) / sampleRateHz;
     const float alpha = std::sin(omega) / 16.0f;
     const float A = std::pow(10.0f, (-12.0f * spaceAmountValue) / 40.0f), a0 = 1.0f + alpha / A;
@@ -106,6 +125,11 @@ void RONESidechainAudioProcessor::processBlock(juce::AudioBuffer<float>& b, juce
     for (int i=0;i<n;++i) {
         float k=0;
         if (kick.getNumChannels()>0) for(int c=0;c<kick.getNumChannels();++c) k=juce::jmax(k,std::abs(kick.getReadPointer(c)[i]));
+        if(useSample && kickSamplePosition>=0 && kickSamplePosition<loadedKick->getNumSamples()) {
+            for(int c=0;c<loadedKick->getNumChannels();++c) k=juce::jmax(k,std::abs(loadedKick->getReadPointer(c)[kickSamplePosition]));
+            ++kickSamplePosition;
+            if(kickSamplePosition>=loadedKick->getNumSamples()) kickSamplePosition=-1;
+        }
         env = juce::jmax(k, env * (k>env ? .4f : .997f));
         if (env > .12f && kickEnvelope <= .12f) kickCountdown = delaySamples - clickN;
         if (kickCountdown >= 0) {
@@ -140,11 +164,11 @@ void RONESidechainAudioProcessor::processBlock(juce::AudioBuffer<float>& b, juce
         }
         if (out.getNumChannels() > 0) delayWrite = (delayWrite + 1) % delayed.getNumSamples();
         ++kickAge;
-        if (kickAge >= cycle - clickN) kickAge = -clickN;
+        if (kickAge >= cycle - clickN) { kickAge = -clickN; if(useSample) kickSamplePosition=0; }
         juce::ignoreUnused(highHz);
     }
 }
 juce::AudioProcessorEditor* RONESidechainAudioProcessor::createEditor(){ return new RONESidechainAudioProcessorEditor(*this); }
-void RONESidechainAudioProcessor::getStateInformation(juce::MemoryBlock& d){ auto x=state.copyState(); juce::ValueTree c("DRAWN_CURVE"); for(int i=0;i<=32;++i)c.setProperty("p"+juce::String(i),getCurvePoint(i),nullptr); x.addChild(c,-1,nullptr); std::unique_ptr<juce::XmlElement> xml(x.createXml()); copyXmlToBinary(*xml,d); }
-void RONESidechainAudioProcessor::setStateInformation(const void* d,int n){ std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(d,n)); if(xml && xml->hasTagName(state.state.getType())) { auto x=juce::ValueTree::fromXml(*xml); auto c=x.getChildWithName("DRAWN_CURVE"); if(c.isValid()) for(int i=0;i<=32;++i) setCurvePoint(i,(float)c.getProperty("p"+juce::String(i),getCurvePoint(i))); x.removeChild(c,nullptr); state.replaceState(x); } }
+void RONESidechainAudioProcessor::getStateInformation(juce::MemoryBlock& d){ auto x=state.copyState(); juce::ValueTree c("DRAWN_CURVE"); for(int i=0;i<=32;++i)c.setProperty("p"+juce::String(i),getCurvePoint(i),nullptr); x.addChild(c,-1,nullptr); if(auto* sample=kickSample.load(std::memory_order_acquire)){ juce::MemoryBlock raw; juce::MemoryOutputStream stream(raw,false); stream.writeInt(sample->getNumChannels()); stream.writeInt(sample->getNumSamples()); for(int ch=0;ch<sample->getNumChannels();++ch) stream.write(sample->getReadPointer(ch),(size_t)sample->getNumSamples()*sizeof(float)); juce::ValueTree k("KICK_SAMPLE"); k.setProperty("name",kickSampleName,nullptr); k.setProperty("channels",sample->getNumChannels(),nullptr); k.setProperty("samples",sample->getNumSamples(),nullptr); k.setProperty("data",raw.toBase64Encoding(),nullptr); x.addChild(k,-1,nullptr); } std::unique_ptr<juce::XmlElement> xml(x.createXml()); copyXmlToBinary(*xml,d); }
+void RONESidechainAudioProcessor::setStateInformation(const void* d,int n){ std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(d,n)); if(xml && xml->hasTagName(state.state.getType())) { auto x=juce::ValueTree::fromXml(*xml); auto c=x.getChildWithName("DRAWN_CURVE"); if(c.isValid()) for(int i=0;i<=32;++i) setCurvePoint(i,(float)c.getProperty("p"+juce::String(i),getCurvePoint(i))); x.removeChild(c,nullptr); auto k=x.getChildWithName("KICK_SAMPLE"); if(k.isValid()){juce::MemoryBlock raw;if(raw.fromBase64Encoding(k.getProperty("data").toString())){juce::MemoryInputStream stream(raw.getData(),raw.getSize(),false);const int channels=juce::jlimit(1,2,stream.readInt()),samples=juce::jlimit(1,(int)sampleRateHz*10,stream.readInt());auto buffer=std::make_unique<juce::AudioBuffer<float>>(channels,samples);for(int ch=0;ch<channels;++ch)stream.read(buffer->getWritePointer(ch),samples*(int)sizeof(float));auto* samplePtr=buffer.get();kickSampleVersions.push_back(std::move(buffer));kickSample.store(samplePtr,std::memory_order_release);kickSampleName=k.getProperty("name").toString();kickSampleChanged.store(true,std::memory_order_release);}} if(k.isValid()) x.removeChild(k,nullptr); state.replaceState(x); } }
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter(){ return new RONESidechainAudioProcessor(); }

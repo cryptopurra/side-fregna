@@ -10,12 +10,13 @@ Side Fregna is a JUCE VST3/Standalone sidechain ducking effect. The project is i
 - Thirteen starting curve shapes, a draggable 33-point curve, and saved curve data in plugin state.
 - A 10 ms DAW-compensated lookahead for the pre-kick click fade.
 - Manual low-band phase rotation and a kick-gated narrow dynamic bell in SPACE.
+- WAV/AIFF kick sample loading by button or drag-and-drop; the sample is saved with the plug-in state and can drive the detector when no routed kick is present.
 - Three tabbed pages and a dark interface based on the supplied references.
 - Windows GitHub Actions workflow that builds and packages a VST3 artifact.
 
 ## Still needed for the full brief
 
-The current DSP/editor are a prototype. The graph currently edits a fixed 33-point table; step/segment dragging, handles, free point insertion/removal, preset management/order, and undo are not implemented. Kick sample loading, a kick waveform display and reliable last-kick render fallback are missing. SUB/BAND use simple non-linear-phase filters, BAND does not yet expose two draggable crossover handles, PHASE is manual and lacks automatic turn detection, and SPACE currently has one bell rather than an adaptive bank. These features need implementation and DAW validation before this should be called release-ready.
+The current DSP/editor are a prototype. The graph currently edits a fixed 33-point table; step/segment dragging, handles, free point insertion/removal, preset management/order, and undo are not implemented. The loaded kick is not yet shown as a waveform, and exact host-grid phase following and full last-kick render matching still need work. SUB/BAND use simple non-linear-phase filters, BAND does not yet expose two draggable crossover handles, PHASE is manual and lacks automatic turn detection, and SPACE currently has one bell rather than an adaptive bank. These features need implementation and DAW validation before this should be called release-ready.
 
 ## Build on Windows
 

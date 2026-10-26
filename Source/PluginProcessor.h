@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include <array>
+#include <vector>
 
 class RONESidechainAudioProcessor final : public juce::AudioProcessor {
 public:
@@ -27,6 +28,8 @@ public:
     void setCurvePoint(int index, float value) noexcept;
     float getCurvePoint(int index) const noexcept;
     void loadShape(int shape) noexcept;
+    bool loadKickSample(const juce::File& file);
+    juce::String getKickSampleName() const;
 private:
     float curveAt(float phase) const noexcept;
     float kickEnvelope = 0.0f, sampleRateHz = 44100.0f, spaceEnvelope = 0.0f;
@@ -35,5 +38,10 @@ private:
     std::array<float, 2> lowState{}, highState{}, phaseX1{}, phaseY1{}, eqX1{}, eqX2{}, eqY1{}, eqY2{};
     float phaseA = 0.0f, eqB0 = 1.0f, eqB1 = 0.0f, eqB2 = 0.0f, eqA1 = 0.0f, eqA2 = 0.0f;
     std::array<std::atomic<float>, 33> curve{};
+    std::atomic<juce::AudioBuffer<float>*> kickSample{nullptr};
+    std::vector<std::unique_ptr<juce::AudioBuffer<float>>> kickSampleVersions;
+    juce::String kickSampleName;
+    int kickSamplePosition = -1;
+    std::atomic<bool> kickSampleChanged{false};
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RONESidechainAudioProcessor)
 };
