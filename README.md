@@ -1,0 +1,31 @@
+# Side Fregna
+
+Side Fregna is a JUCE VST3/Standalone sidechain ducking effect. The project is in active development and is not yet a complete implementation of the supplied product brief.
+
+## Included now
+
+- Separate stereo bass and kick input buses.
+- Host-tempo cycle selector (1/16 through one bar), depth, and click controls.
+- FULL, SUB, and BAND routing modes.
+- Thirteen starting curve shapes, a draggable 33-point curve, and saved curve data in plugin state.
+- Initial PHASE and SPACE controls and a dark interface based on the supplied references.
+- Windows GitHub Actions workflow that builds and packages a VST3 artifact.
+
+## Still needed for the full brief
+
+The current DSP/editor are a prototype. The graph currently edits a fixed 33-point table; step/segment dragging, handles, free point insertion/removal, preset management/order, and undo are not implemented. Kick sample loading, a kick waveform display and reliable last-kick render fallback are missing. SUB/BAND currently use simple non-linear-phase filtering; PHASE is not yet an adaptive sub-band alignment engine, and SPACE is not yet a set of dynamic, frequency-selective bells. These features need implementation and DAW validation before this should be called release-ready.
+
+## Build on Windows
+
+Install CMake 3.22+ and Visual Studio 2022 with the Desktop development with C++ workload. The first configure fetches JUCE 8.0.8.
+
+```powershell
+cmake -S . -B build -A x64
+cmake --build build --config Release --target SideFregna_VST3
+```
+
+The plugin bundle is under `build/SideFregna_artefacts/Release/VST3`. GitHub Actions builds the same artifact on pushes, pull requests, and manual runs.
+
+## License
+
+Project source: MIT. JUCE is fetched separately and remains under its own license terms.
