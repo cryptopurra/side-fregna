@@ -18,6 +18,7 @@ juce_add_plugin(SideFregna
 juce_generate_juce_header(SideFregna)
 target_sources(SideFregna PRIVATE Source/PluginProcessor.cpp Source/PluginEditor.cpp)
 target_compile_features(SideFregna PRIVATE cxx_std_17)
-target_compile_definitions(SideFregna PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_compile_definitions(SideFregna PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0)
 target_link_libraries(SideFregna PRIVATE juce::juce_audio_utils juce::juce_dsp
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+
