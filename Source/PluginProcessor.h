@@ -42,10 +42,12 @@ private:
     std::atomic<juce::AudioBuffer<float>*> kickSample{nullptr};
     std::vector<std::unique_ptr<juce::AudioBuffer<float>>> kickSampleVersions;
     juce::String kickSampleName;
-    int kickSamplePosition = -1;
+    double kickSamplePosition = -1.0;
+    std::atomic<double> kickSampleRate{44100.0};
     std::atomic<bool> kickSampleChanged{false};
     std::int64_t externalQuietSamples = 0;
     bool hasExternalKick = false;
     int lastGridPhase = -1;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RONESidechainAudioProcessor)
 };
+
