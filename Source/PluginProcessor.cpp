@@ -21,7 +21,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout RONESidechainAudioProcessor:
     p.add(std::make_unique<P>("high", "High", juce::NormalisableRange<float>(100,20000,1,0.35f), 5000));
     p.add(std::make_unique<juce::AudioParameterBool>("space", "SPACE", false));
     p.add(std::make_unique<P>("spaceAmount", "SPACE amount", juce::NormalisableRange<float>(0,1), .3f));
+    p.add(std::make_unique<P>("spaceFrequency", "SPACE frequency", juce::NormalisableRange<float>(25,250,1,0.4f), 70));
     p.add(std::make_unique<P>("release", "Release", juce::NormalisableRange<float>(5,250,1), 29));
+    p.add(std::make_unique<juce::AudioParameterBool>("phaseOn", "PHASE", false));
     p.add(std::make_unique<P>("split", "PHASE split", juce::NormalisableRange<float>(30,180,1,0.4f), 90));
     p.add(std::make_unique<P>("phase", "PHASE", juce::NormalisableRange<float>(-180,180,1), 0));
     return p;
@@ -31,7 +33,9 @@ void RONESidechainAudioProcessor::prepareToPlay(double sr, int block) {
     sampleRateHz = (float)sr;
     delaySamples = juce::jmax(1, (int)std::ceil(sampleRateHz * .010f));
     delayed.setSize(2, delaySamples + 1); delayed.clear(); delayWrite = 0; lowState.fill(0.0f);
-    kickEnvelope = 0; kickAge = -(int)std::round(*state.getRawParameterValue("click") * .001f * sampleRateHz); kickCountdown = -1;
+    kickEnvelope = 0; spaceEnvelope = 0; kickAge = -(int)std::round(*state.getRawParameterValue("click") * .001f * sampleRateHz); kickCountdown = -1;
+    lowState.fill(0.0f); highState.fill(0.0f); phaseX1.fill(0.0f); phaseY1.fill(0.0f);
+    eqX1.fill(0.0f); eqX2.fill(0.0f); eqY1.fill(0.0f); eqY2.fill(0.0f);
     setLatencySamples(delaySamples);
 }
 bool RONESidechainAudioProcessor::isBusesLayoutSupported(const BusesLayout& l) const {
@@ -86,6 +90,18 @@ void RONESidechainAudioProcessor::processBlock(juce::AudioBuffer<float>& b, juce
     const int cycle = juce::jmax(1, (int)(sampleRateHz * 60.0 * beats / bpm));
     const int mode = (int)*state.getRawParameterValue("mode");
     const float lowHz = *state.getRawParameterValue("low"), highHz = *state.getRawParameterValue("high");
+    const float splitHz = *state.getRawParameterValue("split"), phaseDegrees = *state.getRawParameterValue("phase");
+    const bool phaseEnabled = *state.getRawParameterValue("phaseOn") > .5f;
+    const float spaceAmountValue = *state.getRawParameterValue("spaceAmount"), spaceFrequency = *state.getRawParameterValue("spaceFrequency");
+    const float releaseMs = *state.getRawParameterValue("release");
+    const float omega = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, 18000.0f, spaceFrequency) / sampleRateHz;
+    const float alpha = std::sin(omega) / 16.0f;
+    const float A = std::pow(10.0f, (-12.0f * spaceAmountValue) / 40.0f), a0 = 1.0f + alpha / A;
+    eqB0=(1.0f+alpha*A)/a0; eqB1=(-2.0f*std::cos(omega))/a0; eqB2=(1.0f-alpha*A)/a0;
+    eqA1=eqB1; eqA2=(1.0f-alpha/A)/a0;
+    const float phaseOmega=juce::MathConstants<float>::twoPi*juce::jlimit(20.0f,18000.0f,splitHz)/sampleRateHz;
+    const float q=std::tan(-phaseDegrees*juce::MathConstants<float>::pi/360.0f)/juce::jmax(.0001f,std::tan(phaseOmega*.5f));
+    phaseA=juce::jlimit(-.999f,.999f,(1.0f-q)/(1.0f+q));
     float env = kickEnvelope;
     for (int i=0;i<n;++i) {
         float k=0;
@@ -102,16 +118,24 @@ void RONESidechainAudioProcessor::processBlock(juce::AudioBuffer<float>& b, juce
         else gain = 1.0f - depth * (1.0f - curveAt((float)kickAge/cycle));
         if (kickAge == 0) gain = 0.0f;
         const float smooth = 1.0f - std::exp(-6.2831853f * juce::jlimit(20.0f, 18000.0f, lowHz) / sampleRateHz);
+        const float highSmooth = 1.0f - std::exp(-6.2831853f * juce::jlimit(20.0f,18000.0f,highHz)/sampleRateHz);
+        const float phaseSmooth = 1.0f - std::exp(-6.2831853f * juce::jlimit(20.0f,18000.0f,splitHz)/sampleRateHz);
+        const float spaceTarget=(*state.getRawParameterValue("space")>.5f && env>.03f)?juce::jlimit(0.0f,1.0f,env*2.0f):0.0f;
+        const float spaceCoeff=std::exp(-1.0f/((spaceTarget>spaceEnvelope?1.0f:releaseMs)*.001f*sampleRateHz));
+        spaceEnvelope=spaceTarget+spaceCoeff*(spaceEnvelope-spaceTarget);
         for(int c=0;c<out.getNumChannels();++c) {
             const float x = bass.getReadPointer(juce::jmin(c,bassN-1))[i];
             delayed.setSample(c, delayWrite, x);
             const int read = (delayWrite + delayed.getNumSamples() - delaySamples) % delayed.getNumSamples();
             const float delayedX = delayed.getSample(c, read);
-            const float lp = smooth * delayedX + (1.0f - smooth) * lowState[(size_t)c];
-            lowState[(size_t)c] = lp;
-            const float filtered = mode == 1 ? lp : mode == 2 ? delayedX - lp : delayedX;
-            float y = delayedX + filtered * (gain - 1.0f);
-            if (*state.getRawParameterValue("space") > .5f && env > .03f) y *= 1.0f - *state.getRawParameterValue("spaceAmount") * env;
+            const float lpLow=smooth*delayedX+(1.0f-smooth)*lowState[(size_t)c]; lowState[(size_t)c]=lpLow;
+            const float lpHigh=highSmooth*delayedX+(1.0f-highSmooth)*highState[(size_t)c]; highState[(size_t)c]=lpHigh;
+            float filtered=mode==1?lpLow:mode==2?lpHigh-lpLow:delayedX;
+            if(phaseEnabled){const float sub=phaseSmooth*delayedX+(1.0f-phaseSmooth)*phaseX1[(size_t)c];const float rotated=phaseA*sub+phaseX1[(size_t)c]-phaseA*phaseY1[(size_t)c];phaseX1[(size_t)c]=sub;phaseY1[(size_t)c]=rotated;filtered=delayedX-sub+rotated;}
+            float y=delayedX+filtered*(gain-1.0f);
+            const float eq=eqB0*y+eqB1*eqX1[(size_t)c]+eqB2*eqX2[(size_t)c]-eqA1*eqY1[(size_t)c]-eqA2*eqY2[(size_t)c];
+            eqX2[(size_t)c]=eqX1[(size_t)c]; eqX1[(size_t)c]=y; eqY2[(size_t)c]=eqY1[(size_t)c]; eqY1[(size_t)c]=eq;
+            y+=(eq-y)*spaceEnvelope;
             out.getWritePointer(c)[i] = y;
         }
         if (out.getNumChannels() > 0) delayWrite = (delayWrite + 1) % delayed.getNumSamples();
