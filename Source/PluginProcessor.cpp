@@ -33,7 +33,7 @@ void RONESidechainAudioProcessor::prepareToPlay(double sr, int block) {
     sampleRateHz = (float)sr;
     delaySamples = juce::jmax(1, (int)std::ceil(sampleRateHz * .010f));
     delayed.setSize(2, delaySamples + 1); delayed.clear(); delayWrite = 0; lowState.fill(0.0f);
-    kickEnvelope = 0; spaceEnvelope = 0; kickAge = -(int)std::round(*state.getRawParameterValue("click") * .001f * sampleRateHz); kickCountdown = -1;
+    kickEnvelope = 0; spaceEnvelope = 0; kickAge = -(int)std::round(*state.getRawParameterValue("click") * .001f * sampleRateHz); kickCountdown = -1; externalQuietSamples = 0; hasExternalKick = false; lastGridPhase = -1;
     lowState.fill(0.0f); highState.fill(0.0f); phaseX1.fill(0.0f); phaseY1.fill(0.0f);
     eqX1.fill(0.0f); eqX2.fill(0.0f); eqY1.fill(0.0f); eqY2.fill(0.0f);
     setLatencySamples(delaySamples);
@@ -97,8 +97,9 @@ void RONESidechainAudioProcessor::processBlock(juce::AudioBuffer<float>& b, juce
     const float depth = *state.getRawParameterValue("depth");
     const int clickN = juce::jlimit(0, delaySamples, (int)std::round(*state.getRawParameterValue("click") * .001f * sampleRateHz));
     const int division = (int)*state.getRawParameterValue("division");
-    const double bpm = (getPlayHead() && getPlayHead()->getPosition() && getPlayHead()->getPosition()->getBpm()) ? *getPlayHead()->getPosition()->getBpm() : 120.0;
-        const double beats = std::array<double,5>{.25,.5,1,2,4}[(size_t)division];
+    double bpm=120.0,startPpq=0.0; bool hasPpq=false;
+    if(auto* playHead=getPlayHead()) { const auto position=playHead->getPosition(); if(position) { if(auto hostBpm=position->getBpm()) bpm=*hostBpm; if(auto ppq=position->getPpqPosition()) { startPpq=*ppq; hasPpq=true; } } }
+    const double beats = std::array<double,5>{.25,.5,1,2,4}[(size_t)division];
     const int cycle = juce::jmax(1, (int)(sampleRateHz * 60.0 * beats / bpm));
     const int mode = (int)*state.getRawParameterValue("mode");
     const float lowHz = *state.getRawParameterValue("low"), highHz = *state.getRawParameterValue("high");
@@ -110,8 +111,11 @@ void RONESidechainAudioProcessor::processBlock(juce::AudioBuffer<float>& b, juce
     if(kickSampleChanged.exchange(false,std::memory_order_acq_rel)) kickSamplePosition=-1;
     bool externalKick=false;
     for(int c=0;c<kick.getNumChannels();++c) for(int i=0;i<n;++i) if(std::abs(kick.getReadPointer(c)[i])>.001f) externalKick=true;
-    const bool useSample=loadedKick && !externalKick;
-    if(useSample && kickSamplePosition<0 && kickAge<0) kickSamplePosition=0;
+    if(externalKick) { hasExternalKick=true; externalQuietSamples=0; }
+    else if(hasExternalKick) externalQuietSamples+=n;
+    const bool useGrid=hasPpq && (!hasExternalKick || externalQuietSamples>cycle);
+    const bool useSample=loadedKick && (!hasExternalKick || externalQuietSamples>cycle);
+    if(useSample && !hasPpq && kickSamplePosition<0 && kickAge<0) kickSamplePosition=0;
     if(!useSample) kickSamplePosition=-1;
     const float omega = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, 18000.0f, spaceFrequency) / sampleRateHz;
     const float alpha = std::sin(omega) / 16.0f;
@@ -123,6 +127,14 @@ void RONESidechainAudioProcessor::processBlock(juce::AudioBuffer<float>& b, juce
     phaseA=juce::jlimit(-.999f,.999f,(1.0f-q)/(1.0f+q));
     float env = kickEnvelope;
     for (int i=0;i<n;++i) {
+        if(useGrid) {
+            double phase=std::fmod(startPpq+(double)i*bpm/(60.0*sampleRateHz),beats);
+            if(phase<0.0) phase+=beats;
+            const int gridPos=juce::jlimit(0,cycle-1,(int)(phase/beats*cycle));
+            kickAge=gridPos>=cycle-clickN?gridPos-cycle:gridPos;
+            if(useSample && (lastGridPhase<0 || (lastGridPhase>gridPos && gridPos<=clickN))) kickSamplePosition=0;
+            lastGridPhase=gridPos;
+        }
         float k=0;
         if (kick.getNumChannels()>0) for(int c=0;c<kick.getNumChannels();++c) k=juce::jmax(k,std::abs(kick.getReadPointer(c)[i]));
         if(useSample && kickSamplePosition>=0 && kickSamplePosition<loadedKick->getNumSamples()) {
@@ -166,8 +178,7 @@ void RONESidechainAudioProcessor::processBlock(juce::AudioBuffer<float>& b, juce
             out.getWritePointer(c)[i] = y;
         }
         if (out.getNumChannels() > 0) delayWrite = (delayWrite + 1) % delayed.getNumSamples();
-        ++kickAge;
-        if (kickAge >= cycle - clickN) { kickAge = -clickN; if(useSample) kickSamplePosition=0; }
+        if(!useGrid) { ++kickAge; if (kickAge >= cycle - clickN) { kickAge = -clickN; if(useSample) kickSamplePosition=0; } }
         juce::ignoreUnused(highHz);
     }
 }

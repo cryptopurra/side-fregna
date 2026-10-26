@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include <array>
+#include <cstdint>
 #include <vector>
 
 class RONESidechainAudioProcessor final : public juce::AudioProcessor {
@@ -43,5 +44,8 @@ private:
     juce::String kickSampleName;
     int kickSamplePosition = -1;
     std::atomic<bool> kickSampleChanged{false};
+    std::int64_t externalQuietSamples = 0;
+    bool hasExternalKick = false;
+    int lastGridPhase = -1;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RONESidechainAudioProcessor)
 };
