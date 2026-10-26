@@ -26,6 +26,10 @@ cmake --build build --config Release --target SideFregna_VST3
 
 The plugin bundle is under `build/SideFregna_artefacts/Release/VST3`. GitHub Actions builds the same artifact on pushes, pull requests, and manual runs.
 
+## Install
+
+Download and extract the `Side-Fregna-VST3-Windows` artifact from a successful GitHub Actions run, then run `Install.ps1` from the extracted folder. It installs to the per-user VST3 folder under `%LOCALAPPDATA%`; rescan VST3 plug-ins in the DAW afterward.
+
 ## License
 
 Project source: MIT. JUCE is fetched separately and remains under its own license terms.

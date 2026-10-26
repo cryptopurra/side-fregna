@@ -22,7 +22,7 @@ jobs:
         run: cmake --build build --config Release --target SideFregna_VST3
       - name: Package plugin
         shell: pwsh
-        run: Compress-Archive -Path 'build/SideFregna_artefacts/Release/VST3/Side Fregna.vst3' -DestinationPath 'Side-Fregna-VST3-Windows.zip' -Force
+        run: Compress-Archive -Path 'build/SideFregna_artefacts/Release/VST3/Side Fregna.vst3', 'Install.ps1' -DestinationPath 'Side-Fregna-VST3-Windows.zip' -Force
       - uses: actions/upload-artifact@v4
         with:
           name: Side-Fregna-VST3-Windows
