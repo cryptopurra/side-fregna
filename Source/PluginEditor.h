@@ -18,6 +18,7 @@ private:
     juce::ToggleButton space, phaseEnabled;
     juce::TextButton loadKick;
     juce::Label kickStatus;
+    std::unique_ptr<juce::FileChooser> kickChooser;
     juce::Label title, hint;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> divisionLink, modeLink;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> shapeLink;

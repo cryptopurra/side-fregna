@@ -20,7 +20,16 @@ RONESidechainAudioProcessorEditor::RONESidechainAudioProcessorEditor(RONESidecha
     auto setup=[this](juce::Slider& s,const juce::String& name){s.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);s.setTextBoxStyle(juce::Slider::TextBoxBelow,false,76,20);s.setColour(juce::Slider::rotarySliderFillColourId,juce::Colour(0xff7888ff));s.setColour(juce::Slider::textBoxTextColourId,juce::Colour(0xffe6e8f2));s.setName(name);addAndMakeVisible(s);};
     setup(depth,"DEPTH"); setup(click,"CLICK ms"); setup(phase,"PHASE °"); setup(split,"SPLIT Hz"); setup(spaceAmount,"AMOUNT"); setup(release,"RELEASE ms"); setup(spaceFrequency,"FREQ Hz"); addAndMakeVisible(space); addAndMakeVisible(phaseEnabled);
     loadKick.setButtonText("LOAD KICK…"); addAndMakeVisible(loadKick); kickStatus.setText("Drop a WAV/AIFF kick here",juce::dontSendNotification); kickStatus.setColour(juce::Label::textColourId,juce::Colour(0xff8992b5)); addAndMakeVisible(kickStatus);
-    loadKick.onClick=[this]{ juce::FileChooser chooser("Load a kick sample"); if(chooser.browseForFileToOpen()){ if(processor.loadKickSample(chooser.getResult())) kickStatus.setText(processor.getKickSampleName(),juce::dontSendNotification); else kickStatus.setText("Could not read that audio file",juce::dontSendNotification); } };
+    loadKick.onClick=[this]{
+        kickChooser=std::make_unique<juce::FileChooser>("Load a kick sample");
+        juce::Component::SafePointer<RONESidechainAudioProcessorEditor> safeThis(this);
+        kickChooser->launchAsync(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[safeThis](const juce::FileChooser& chooser){
+            auto* editor=safeThis.getComponent();
+            if(editor==nullptr)return;
+            if(editor->processor.loadKickSample(chooser.getResult())) editor->kickStatus.setText(editor->processor.getKickSampleName(),juce::dontSendNotification);
+            else editor->kickStatus.setText("Could not read that audio file",juce::dontSendNotification);
+        });
+    };
     space.setButtonText("SPACE ON"); phaseEnabled.setButtonText("PHASE ON");
     auto& s=processor.state; divisionLink=std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(s,"division",division); modeLink=std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(s,"mode",mode); shapeLink=std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(s,"shape",shape); shape.onChange=[this]{ processor.loadShape(shape.getSelectedItemIndex()); repaint(); }; depthLink=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(s,"depth",depth); clickLink=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(s,"click",click); phaseLink=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(s,"phase",phase); splitLink=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(s,"split",split); amountLink=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(s,"spaceAmount",spaceAmount); releaseLink=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(s,"release",release); frequencyLink=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(s,"spaceFrequency",spaceFrequency); spaceLink=std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(s,"space",space); phaseEnabledLink=std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(s,"phaseOn",phaseEnabled); page.onChange(); startTimerHz(30);
 }
