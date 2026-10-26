@@ -28,8 +28,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout RONESidechainAudioProcessor:
 }
 
 void RONESidechainAudioProcessor::prepareToPlay(double sr, int block) {
-    sampleRateHz = (float)sr; delayed.setSize(2, block + 32); delayed.clear(); delayWrite = 0;
-    kickEnvelope = 0; samplesSinceKick = 0;
+    sampleRateHz = (float)sr;
+    delaySamples = juce::jmax(1, (int)std::ceil(sampleRateHz * .010f));
+    delayed.setSize(2, delaySamples + 1); delayed.clear(); delayWrite = 0; lowState.fill(0.0f);
+    kickEnvelope = 0; kickAge = -(int)std::round(*state.getRawParameterValue("click") * .001f * sampleRateHz); kickCountdown = -1;
+    setLatencySamples(delaySamples);
 }
 bool RONESidechainAudioProcessor::isBusesLayoutSupported(const BusesLayout& l) const {
     return l.getMainInputChannelSet() == juce::AudioChannelSet::mono() || l.getMainInputChannelSet() == juce::AudioChannelSet::stereo();
@@ -76,7 +79,7 @@ void RONESidechainAudioProcessor::processBlock(juce::AudioBuffer<float>& b, juce
     auto out = getBusBuffer(b, false, 0);
     const int n = b.getNumSamples();
     const float depth = *state.getRawParameterValue("depth");
-    const float clickN = *state.getRawParameterValue("click") * .001f * sampleRateHz;
+    const int clickN = juce::jlimit(0, delaySamples, (int)std::round(*state.getRawParameterValue("click") * .001f * sampleRateHz));
     const int division = (int)*state.getRawParameterValue("division");
     const double bpm = (getPlayHead() && getPlayHead()->getPosition() && getPlayHead()->getPosition()->getBpm()) ? *getPlayHead()->getPosition()->getBpm() : 120.0;
         const double beats = std::array<double,5>{.25,.5,1,2,4}[(size_t)division];
@@ -88,23 +91,32 @@ void RONESidechainAudioProcessor::processBlock(juce::AudioBuffer<float>& b, juce
         float k=0;
         if (kick.getNumChannels()>0) for(int c=0;c<kick.getNumChannels();++c) k=juce::jmax(k,std::abs(kick.getReadPointer(c)[i]));
         env = juce::jmax(k, env * (k>env ? .4f : .997f));
-        if (env > .12f && kickEnvelope <= .12f) samplesSinceKick = 0;
-        else ++samplesSinceKick;
+        if (env > .12f && kickEnvelope <= .12f) kickCountdown = delaySamples - clickN;
+        if (kickCountdown >= 0) {
+            if (kickCountdown == 0) { kickAge = -clickN; kickCountdown = -1; }
+            else --kickCountdown;
+        }
         kickEnvelope = env;
-        const int pos = samplesSinceKick % cycle;
-        float gain = 1.0f - depth * (1.0f - curveAt((float)pos/cycle));
-        if (samplesSinceKick == 0) gain = 0.0f;
-        if (clickN > 0 && pos < clickN) gain *= (float)pos / clickN;
+        float gain;
+        if (kickAge < 0) gain = clickN > 0 ? juce::jlimit(0.0f, 1.0f, -(float)kickAge / (float)clickN) : 1.0f;
+        else gain = 1.0f - depth * (1.0f - curveAt((float)kickAge/cycle));
+        if (kickAge == 0) gain = 0.0f;
         const float smooth = 1.0f - std::exp(-6.2831853f * juce::jlimit(20.0f, 18000.0f, lowHz) / sampleRateHz);
         for(int c=0;c<out.getNumChannels();++c) {
             const float x = bass.getReadPointer(juce::jmin(c,bassN-1))[i];
-            float filtered = x;
-            if (mode == 1) { const float prev = i>0 ? bass.getReadPointer(juce::jmin(c,bassN-1))[i-1] : 0; filtered = smooth * x + (1-smooth)*prev; }
-            else if (mode == 2) { const float prev = i>0 ? bass.getReadPointer(juce::jmin(c,bassN-1))[i-1] : 0; const float lp = smooth*x+(1-smooth)*prev; filtered = x-lp; }
-            float y = x + (filtered * (gain - 1.0f));
+            delayed.setSample(c, delayWrite, x);
+            const int read = (delayWrite + delayed.getNumSamples() - delaySamples) % delayed.getNumSamples();
+            const float delayedX = delayed.getSample(c, read);
+            const float lp = smooth * delayedX + (1.0f - smooth) * lowState[(size_t)c];
+            lowState[(size_t)c] = lp;
+            const float filtered = mode == 1 ? lp : mode == 2 ? delayedX - lp : delayedX;
+            float y = delayedX + filtered * (gain - 1.0f);
             if (*state.getRawParameterValue("space") > .5f && env > .03f) y *= 1.0f - *state.getRawParameterValue("spaceAmount") * env;
             out.getWritePointer(c)[i] = y;
         }
+        if (out.getNumChannels() > 0) delayWrite = (delayWrite + 1) % delayed.getNumSamples();
+        ++kickAge;
+        if (kickAge >= cycle - clickN) kickAge = -clickN;
         juce::ignoreUnused(highHz);
     }
 }

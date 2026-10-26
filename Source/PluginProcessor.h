@@ -30,9 +30,9 @@ public:
 private:
     float curveAt(float phase) const noexcept;
     float kickEnvelope = 0.0f, sampleRateHz = 44100.0f;
-    int samplesSinceKick = 1000000;
+    int kickAge = 0, kickCountdown = -1, delaySamples = 0, delayWrite = 0;
     juce::AudioBuffer<float> delayed;
-    int delayWrite = 0;
+    std::array<float, 2> lowState{};
     std::array<std::atomic<float>, 33> curve{};
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RONESidechainAudioProcessor)
 };

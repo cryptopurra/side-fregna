@@ -5,7 +5,7 @@ Side Fregna is a JUCE VST3/Standalone sidechain ducking effect. The project is i
 ## Included now
 
 - Separate stereo bass and kick input buses.
-- Host-tempo cycle selector (1/16 through one bar), depth, and click controls.
+- Host-tempo cycle selector (1/16 through one bar), depth, click control, and a 10 ms DAW-compensated lookahead that places the fade before the kick.
 - FULL, SUB, and BAND routing modes.
 - Thirteen starting curve shapes, a draggable 33-point curve, and saved curve data in plugin state.
 - Initial PHASE and SPACE controls and a dark interface based on the supplied references.
