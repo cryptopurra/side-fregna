@@ -152,11 +152,14 @@ void RONESidechainAudioProcessor::processBlock(juce::AudioBuffer<float>& b, juce
             delayed.setSample(c, delayWrite, x);
             const int read = (delayWrite + delayed.getNumSamples() - delaySamples) % delayed.getNumSamples();
             const float delayedX = delayed.getSample(c, read);
-            const float lpLow=smooth*delayedX+(1.0f-smooth)*lowState[(size_t)c]; lowState[(size_t)c]=lpLow;
-            const float lpHigh=highSmooth*delayedX+(1.0f-highSmooth)*highState[(size_t)c]; highState[(size_t)c]=lpHigh;
-            float filtered=mode==1?lpLow:mode==2?lpHigh-lpLow:delayedX;
-            if(phaseEnabled){const float sub=phaseSmooth*delayedX+(1.0f-phaseSmooth)*phaseX1[(size_t)c];const float rotated=phaseA*sub+phaseX1[(size_t)c]-phaseA*phaseY1[(size_t)c];phaseX1[(size_t)c]=sub;phaseY1[(size_t)c]=rotated;filtered=delayedX-sub+rotated;}
-            float y=delayedX+filtered*(gain-1.0f);
+            const float sub=phaseSmooth*delayedX+(1.0f-phaseSmooth)*phaseX1[(size_t)c];
+            const float rotated=phaseA*sub+phaseX1[(size_t)c]-phaseA*phaseY1[(size_t)c];
+            phaseX1[(size_t)c]=sub; phaseY1[(size_t)c]=rotated;
+            const float signal=phaseEnabled?delayedX-sub+rotated:delayedX;
+            const float lpLow=smooth*signal+(1.0f-smooth)*lowState[(size_t)c]; lowState[(size_t)c]=lpLow;
+            const float lpHigh=highSmooth*signal+(1.0f-highSmooth)*highState[(size_t)c]; highState[(size_t)c]=lpHigh;
+            const float filtered=mode==1?lpLow:mode==2?lpHigh-lpLow:signal;
+            float y=signal+filtered*(gain-1.0f);
             const float eq=eqB0*y+eqB1*eqX1[(size_t)c]+eqB2*eqX2[(size_t)c]-eqA1*eqY1[(size_t)c]-eqA2*eqY2[(size_t)c];
             eqX2[(size_t)c]=eqX1[(size_t)c]; eqX1[(size_t)c]=y; eqY2[(size_t)c]=eqY1[(size_t)c]; eqY1[(size_t)c]=eq;
             y+=(eq-y)*spaceEnvelope;
